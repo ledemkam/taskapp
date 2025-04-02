@@ -1,5 +1,5 @@
 import "./App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Routes, Route } from "react-router-dom";
 import TaskLists from "./pages/TaskListsScreen";
 import CreateUpdateTaskListScreen from "./pages/CreateUpdateTaskListScreen";
 import TaskListScreen from "./components/TasksScreen";
@@ -7,7 +7,7 @@ import CreateUpdateTaskScreen from "./pages/CreateUpdateTaskScreen";
 
 function App() {
   return (
-    <BrowserRouter>
+    <>
       <Routes>
         <Route path="/" element={<TaskLists />} />
         <Route path="/new-task-list" element={<CreateUpdateTaskListScreen />} />
@@ -25,7 +25,7 @@ function App() {
           element={<CreateUpdateTaskScreen />}
         />
       </Routes>
-    </BrowserRouter>
+    </>
   );
 }
 

@@ -1,72 +1,80 @@
-import React, { useEffect, useState } from "react";
-import { Button, Input, Textarea, Spacer, Card, Chip } from "@nextui-org/react";
-import { ArrowLeft } from "lucide-react";
-import { useAppContext } from "../AppProvider";
-import { useNavigate, useParams } from "react-router-dom";
-import axios from "axios";
-import { TaskPriority } from "../types/TaskPriority";
-import { DatePicker } from "@nextui-org/date-picker";
-import { TaskStatus } from "../types/TaskStatus";
-import { parseDate } from "@internationalized/date";
+import React, { useEffect, useState } from 'react';
+import { Button, Input, Textarea, Spacer, Card, Chip } from '@nextui-org/react';
+import { ArrowLeft } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import axios from 'axios';
+import { TaskPriority } from '../types/TaskPriority';
+import { DatePicker } from '@nextui-org/date-picker';
+import { TaskStatus } from '../types/TaskStatus';
+import { parseDate } from '@internationalized/date';
+import useCreateTask from '../tanskquery/queries/task/useCreateTask';
+import useUpdateTask from '../tanskquery/queries/task/useUpdateTask';
+import useFetchTasks from '../tanskquery/queries/task/useFetchTasks';
+import useFecthTaskList from '../tanskquery/queries/taskList/useFecthTaskList';
 
-const CreateUpdateTaskScreen: React.FC = () => {
-  const { state, api } = useAppContext();
-  const { listId, taskId } = useParams();
+const CreateUpdateTaskScreen = () => {
+  const { listId, taskId } = useParams<{ listId: string; taskId?: string }>();
   const navigate = useNavigate();
 
   const [isLoading, setIsLoading] = useState(true);
-  const [isUpdate, setIsUpdate] = useState(false);
-  const [error, setError] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [error, setError] = useState('');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
   const [priority, setPriority] = useState(TaskPriority.MEDIUM);
   const [status, setStatus] = useState<TaskStatus | undefined>(undefined);
 
+  // Custom hooks
+  const { data: taskLists, isPending: taskListLoading } = useFecthTaskList();
+  const {
+    data: taskData,
+    isPending: taskLoading,
+    isError: taskError,
+  } = useFetchTasks(listId || '');
+  const {
+    mutateAsync: updateTask,
+    isPending: updateLoading,
+    isError: updateError,
+  } = useUpdateTask();
+  const {
+    mutateAsync: createTask,
+    isPending: createLoading,
+    isError: createError,
+  } = useCreateTask();
+
+  const isUpdate = Boolean(taskId);
+
   // Load initial data
   useEffect(() => {
     const loadInitialData = async () => {
-      if (!listId || !taskId) {
+      if (!listId) {
         setIsLoading(false);
         return;
       }
 
-      setIsLoading(true);
       try {
-        console.log("Loading initial data...");
-        
-        // First ensure we have the task list
-        if (!state.taskLists.find(tl => tl.id === listId)) {
-          await api.getTaskList(listId);
+        // Check if we have task lists data
+        if (taskLists && taskId) {
+          // Find the specific task in the task data
+          const loadedTask = taskData
+            ? taskData.find((task) => task.id === taskId)
+            : null;
+          if (loadedTask) {
+            setTitle(loadedTask.title);
+            setDescription(loadedTask.description || '');
+            setDueDate(
+              loadedTask.dueDate ? new Date(loadedTask.dueDate) : undefined,
+            );
+            setPriority(loadedTask.priority || TaskPriority.MEDIUM);
+            setStatus(loadedTask.status);
+          }
         }
-
-        // Load the individual task
-        const taskResponse = await api.getTask(listId, taskId);
-        console.log("Task loaded:", taskResponse);
-        
-        // Check state after loading
-        console.log("Current state after load:", state);
-        
-        // Get task from state
-        const task = state.tasks[listId]?.find(t => t.id === taskId);
-        console.log("Found task in state:", task);
-
-        if (task) {
-          console.log("Setting form values with task:", task);
-          setTitle(task.title);
-          setDescription(task.description || "");
-          setDueDate(task.dueDate ? new Date(task.dueDate) : undefined);
-          setPriority(task.priority || TaskPriority.MEDIUM);
-          setStatus(task.status);
-        }
-
-        setIsUpdate(true);
       } catch (error) {
-        console.error("Error loading task:", error);
+        console.error('Error loading data:', error);
         if (axios.isAxiosError(error)) {
           setError(error.response?.data?.message || error.message);
         } else {
-          setError("An unknown error occurred");
+          setError('An unknown error occurred');
         }
       } finally {
         setIsLoading(false);
@@ -74,45 +82,52 @@ const CreateUpdateTaskScreen: React.FC = () => {
     };
 
     loadInitialData();
-  }, [listId, taskId]);
+  }, [listId, taskId, taskLists, taskData]);
 
-  // Watch for task updates in state
+  // Watch for task updates
   useEffect(() => {
-    if (listId && taskId && state.tasks[listId]) {
-      const task = state.tasks[listId].find(t => t.id === taskId);
-      console.log("State updated, current task:", task);
-      
-      if (task) {
-        console.log("Updating form with task from state update:", task);
-        setTitle(task.title);
-        setDescription(task.description || "");
-        setDueDate(task.dueDate ? new Date(task.dueDate) : undefined);
-        setPriority(task.priority || TaskPriority.MEDIUM);
-        setStatus(task.status);
+    if (taskData && taskId) {
+      const currentTask = taskData.find((task) => task.id === taskId);
+      if (currentTask) {
+        setTitle(currentTask.title);
+        setDescription(currentTask.description || '');
+        setDueDate(
+          currentTask.dueDate ? new Date(currentTask.dueDate) : undefined,
+        );
+        setPriority(currentTask.priority || TaskPriority.MEDIUM);
+        setStatus(currentTask.status);
       }
     }
-  }, [listId, taskId, state.tasks]);
+  }, [taskData, taskId]);
 
-  const createUpdateTask = async () => {
+  const handleSubmit = async () => {
     try {
       if (!listId) return;
 
       if (isUpdate && taskId) {
-        await api.updateTask(listId, taskId, {
-          id: taskId,
-          title,
-          description,
-          dueDate,
-          priority,
-          status,
+        await updateTask({
+          taskListId: listId,
+          taskId,
+          task: {
+            id: taskId,
+            title,
+            description,
+            dueDate,
+            priority,
+            status,
+          },
         });
       } else {
-        await api.createTask(listId, {
-          title,
-          description,
-          dueDate,
-          priority,
-          status: undefined,
+        await createTask({
+          taskListId: listId,
+          task: {
+            id: undefined,
+            title,
+            description,
+            dueDate,
+            priority,
+            status: undefined,
+          },
         });
       }
 
@@ -121,7 +136,7 @@ const CreateUpdateTaskScreen: React.FC = () => {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.message || err.message);
       } else {
-        setError("An unknown error occurred");
+        setError('An unknown error occurred');
       }
     }
   };
@@ -135,14 +150,22 @@ const CreateUpdateTaskScreen: React.FC = () => {
     return date.toISOString().split('T')[0];
   };
 
-  if (isLoading) {
+  if (
+    isLoading ||
+    taskListLoading ||
+    taskLoading ||
+    updateLoading ||
+    createLoading
+  ) {
     return <div>Loading...</div>;
   }
+
+  const displayError = error || taskError || updateError || createError;
 
   return (
     <div className="p-4 max-w-md mx-auto">
       <div className="flex items-center space-x-4 mb-6">
-        <Button 
+        <Button
           variant="ghost"
           aria-label="Go back"
           onClick={() => navigate(`/task-lists/${listId}`)}
@@ -150,10 +173,12 @@ const CreateUpdateTaskScreen: React.FC = () => {
           <ArrowLeft size={20} />
         </Button>
         <h1 className="text-2xl font-bold">
-          {isUpdate ? "Update Task" : "Create Task"}
+          {isUpdate ? 'Update Task' : 'Create Task'}
         </h1>
       </div>
-      {error && <Card className="mb-4 p-4 text-red-500">{error}</Card>}
+      {displayError && (
+        <Card className="mb-4 p-4 text-red-500">{displayError}</Card>
+      )}
       <form onSubmit={(e) => e.preventDefault()}>
         <Input
           label="Title"
@@ -174,16 +199,20 @@ const CreateUpdateTaskScreen: React.FC = () => {
         <Spacer y={1} />
         <DatePicker
           label="Due date (optional)"
-          defaultValue={dueDate ? parseDate(formatDateForPicker(dueDate)!) : undefined}
-          onChange={(newDate) => handleDateChange(newDate ? new Date(newDate.toString()) : null)}
+          defaultValue={
+            dueDate ? parseDate(formatDateForPicker(dueDate)!) : undefined
+          }
+          onChange={(newDate) =>
+            handleDateChange(newDate ? new Date(newDate.toString()) : null)
+          }
         />
         <Spacer y={4} />
         <div className="flex justify-between mx-auto gap-2">
           {Object.values(TaskPriority).map((p) => (
             <Chip
               key={p}
-              color={priority === p ? "primary" : "default"}
-              variant={priority === p ? "solid" : "faded"}
+              color={priority === p ? 'primary' : 'default'}
+              variant={priority === p ? 'solid' : 'faded'}
               onClick={() => setPriority(p)}
               className="cursor-pointer"
             >
@@ -192,13 +221,8 @@ const CreateUpdateTaskScreen: React.FC = () => {
           ))}
         </div>
         <Spacer y={4} />
-        <Button 
-          type="submit" 
-          color="primary" 
-          onClick={createUpdateTask}
-          fullWidth
-        >
-          {isUpdate ? "Update Task" : "Create Task"}
+        <Button type="submit" color="primary" onClick={handleSubmit} fullWidth>
+          {isUpdate ? 'Update Task' : 'Create Task'}
         </Button>
       </form>
     </div>

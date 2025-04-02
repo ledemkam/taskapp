@@ -1,102 +1,91 @@
-import React, { useEffect, useState } from "react";
-import { Button, Input, Textarea, Spacer, Card } from "@nextui-org/react";
-import { ArrowLeft } from "lucide-react";
-import { useAppContext } from "../AppProvider";
-import { useNavigate, useParams } from "react-router-dom";
-import axios from "axios";
+import React, { useState } from 'react';
+import { Button, Input, Textarea, Spacer, Card } from '@nextui-org/react';
+import { ArrowLeft } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import axios from 'axios';
+import useUpdateTaskList from '../tanskquery/queries/taskList/useUpdateTaskList ';
+import useCreateTaskList from '../tanskquery/queries/taskList/useCreateTaskList';
+import useFecthTasList from '../tanskquery/queries/taskList/useFecthTaskList';
 
 const CreateUpdateTaskListScreen: React.FC = () => {
-  const { state, api } = useAppContext();
-
   const { listId } = useParams();
-
-  const [isUpdate, setIsUpdate] = useState(false);
-  const [error, setError] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("" as string | undefined);
-
-  // Get a handle on the router
   const navigate = useNavigate();
 
-  const findTaskList = (taskListId: string) => {
-    const filteredTaskLists = state.taskLists.filter(
-      (tl) => taskListId == tl.id
-    );
-    if (filteredTaskLists.length === 1) {
-      return filteredTaskLists[0];
-    }
-    return null;
-  };
+  const [title, setTitle] = useState<string | undefined>('');
+  const [description, setDescription] = useState<string | undefined>('');
+  const [error, setError] = useState<string>('');
 
-  const populateTaskList = (taskListId: string) => {
-    const taskList = findTaskList(taskListId);
-    if (null != taskList) {
-      console.log("FOUND TASK LIST");
-      setTitle(taskList.title);
-      setDescription(taskList.description);
-      setIsUpdate(true);
-    }
-  };
+  // Query hooks
+  const { mutateAsync: updateTaskList } = useUpdateTaskList();
+  const { mutateAsync: createTaskList } = useCreateTaskList();
 
-  useEffect(() => {
-    if (null != listId) {
-      console.log(`ID is ${listId}`);
-      if (null == state.taskLists) {
-        console.log("Fetching task lists");
-        api.fetchTaskLists().then(() => populateTaskList(listId));
-      } else {
-        populateTaskList(listId);
-      }
-    }
-  }, [listId]);
+  // Fetch data if we're updating
+  const { data: taskLists, isPending: taskListLoading } = useFecthTasList();
+  const taskList = taskLists?.find((tl) => tl.id === listId);
 
-  const createUpdateTaskList = async () => {
+  // Track if we're updating an existing list
+  const isUpdate = !!listId;
+
+  // Populate form when task list data is loaded
+  React.useEffect(() => {
+    if (taskLists) {
+      setTitle(taskList?.title);
+      setDescription(taskList?.description);
+    }
+  }, [taskList]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
     try {
-      if (isUpdate && null != listId) {
-        await api.updateTaskList(listId, {
+      if (isUpdate && listId) {
+        await updateTaskList({
           id: listId,
-          title: title,
-          description: description,
-          count: undefined,
-          progress: undefined,
-          tasks: undefined,
+          taskList: {
+            id: listId,
+            title: title || '',
+            description: description || '',
+            count: 0,
+            progress: 0,
+            tasks: [],
+          },
         });
       } else {
-        await api.createTaskList({
-          title: title,
-          description: description,
-          count: undefined,
-          progress: undefined,
-          tasks: undefined,
+        await createTaskList({
+          id: undefined, // Assign undefined for new task lists
+          title: title || '',
+          description: description || '',
+          count: 0,
+          progress: 0,
+          tasks: [],
         });
       }
 
       // Success navigate to home
-      navigate("/");
+      navigate('/');
     } catch (err) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.message || err.message);
       } else {
-        setError("An unknown error occurred");
+        setError('An unknown error occurred');
       }
     }
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
   };
 
   return (
     <div className="p-4 max-w-md mx-auto">
       <div className="flex items-center space-x-4 mb-6">
-        <Button onClick={() => navigate("/")}>
+        <Button onClick={() => navigate('/')}>
           <ArrowLeft size={20} />
         </Button>
         <h1 className="text-2xl font-bold">
-          {isUpdate ? "Update Task List" : "Create Task List"}
+          {isUpdate ? 'Update Task List' : 'Create Task List'}
         </h1>
       </div>
+
+      {taskListLoading && <p>Loading task list data...</p>}
       {error.length > 0 && <Card>{error}</Card>}
+
       <form onSubmit={handleSubmit}>
         <Input
           label="Title"
@@ -115,8 +104,8 @@ const CreateUpdateTaskListScreen: React.FC = () => {
           fullWidth
         />
         <Spacer y={1} />
-        <Button type="submit" color="primary" onClick={createUpdateTaskList}>
-          {isUpdate ? "Update Task List" : "Create Task List"}
+        <Button type="submit" color="primary">
+          {isUpdate ? 'Update Task List' : 'Create Task List'}
         </Button>
       </form>
     </div>

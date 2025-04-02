@@ -1,4 +1,4 @@
-import { parseDate } from "@internationalized/date";
+import { parseDate } from '@internationalized/date';
 import {
   Button,
   Checkbox,
@@ -12,137 +12,157 @@ import {
   TableHeader,
   TableRow,
   Spinner,
-} from "@nextui-org/react";
-import { ArrowLeft, Edit, Minus, Plus, Trash } from "lucide-react";
-import React, { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { useAppContext } from "../AppProvider";
-import Task from "../types/Task";
-import { TaskStatus } from "../types/TaskStatus";
+} from '@nextui-org/react';
+import { ArrowLeft, Edit, Minus, Plus, Trash } from 'lucide-react';
+import React, { ReactElement, useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import Task from '../types/Task';
+import { TaskStatus } from '../types/TaskStatus';
+import useFecthTasList from '../tanskquery/queries/taskList/useFecthTaskList';
+import useFetchTasks from '../tanskquery/queries/task/useFetchTasks';
+import useUpdateTask from '../tanskquery/queries/task/useUpdateTask';
+import useDeleteTaskList from '../tanskquery/queries/taskList/useDeleteTaskList';
+import useDeleTask from '../tanskquery/queries/task/useDeleTask';
 
-const TaskListScreen: React.FC = () => {
-  const { state, api } = useAppContext();
-  const { listId } = useParams();
-  const [isLoading, setIsLoading] = useState(true);
+const TaskListScreen = (): ReactElement => {
+  const { listId } = useParams<{ listId: string }>();
   const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Find task list directly from state instead of maintaining separate state
-  const taskList = state.taskLists.find((tl) => listId === tl.id);
+  // Query hooks
+  const { data: taskLists } = useFecthTasList();
+  const { data: tasks = [], isLoading: tasksLoading } = useFetchTasks(
+    listId || '',
+  );
+  const { mutateAsync: updateTaskAsync } = useUpdateTask();
+  const { mutateAsync: deleteTaskListAsync } = useDeleteTaskList();
+  const { mutateAsync: deleteTaskAsync } = useDeleTask();
 
-  // Single useEffect to handle all initial data loading
+  // Find task list directly from taskLists
+  const taskList = taskLists?.find((tl) => listId === tl.id);
+
+  // Set loading state based on query status
   useEffect(() => {
-    const loadInitialData = async () => {
-      if (!listId) return;
-
+    if (tasksLoading) {
       setIsLoading(true);
-      try {
-        // Only fetch if we don't already have the task list
-        if (!taskList) {
-          await api.getTaskList(listId);
-        }
-
-        // Attempt to fetch tasks - this may 404 but we'll try anyway
-        try {
-          await api.fetchTasks(listId);
-        } catch {
-          console.log("Tasks not available yet");
-        }
-      } catch (error) {
-        console.error("Error loading task list:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadInitialData();
-  }, [listId]); // Only depend on listId
+    } else {
+      setIsLoading(false);
+    }
+  }, [tasksLoading]);
 
   // Calculate completion percentage based on tasks
   const completionPercentage = React.useMemo(() => {
-    if (listId && state.tasks[listId]) {
-      const tasks = state.tasks[listId];
-      const closeTaskCount = tasks.filter(
-        (task) => task.status === TaskStatus.CLOSED
+    if (tasks && tasks.length > 0) {
+      const closedTaskCount = tasks.filter(
+        (task) => task.status === TaskStatus.CLOSED,
       ).length;
-      return tasks.length > 0 ? (closeTaskCount / tasks.length) * 100 : 0;
+      return tasks.length > 0 ? (closedTaskCount / tasks.length) * 100 : 0;
     }
     return 0;
-  }, [state.tasks, listId]);
+  }, [tasks]);
 
-  const toggleStatus = (task: Task) => {
-    if (listId) {
-      const updatedTask = { ...task };
-      updatedTask.status =
-        task.status === TaskStatus.CLOSED ? TaskStatus.OPEN : TaskStatus.CLOSED;
+  const toggleStatus = async (task: Task) => {
+    if (!listId || !task.id) return;
 
-      api
-        .updateTask(listId, task.id, updatedTask)
-        .then(() => api.fetchTasks(listId));
+    const updatedTask = { ...task };
+    updatedTask.status =
+      task.status === TaskStatus.CLOSED ? TaskStatus.OPEN : TaskStatus.CLOSED;
+
+    try {
+      await updateTaskAsync({
+        taskListId: listId,
+        taskId: task.id,
+        task: updatedTask,
+      });
+    } catch (error) {
+      console.error('Failed to update task status:', error);
     }
   };
 
-  const deleteTaskList = async () => {
-    if (null != listId) {
-      await api.deleteTaskList(listId);
-      navigate("/");
+  const handleDeleteTaskList = async () => {
+    if (!listId) return;
+
+    try {
+      await deleteTaskListAsync(listId);
+      navigate('/');
+    } catch (error) {
+      console.error('Failed to delete task list:', error);
+    }
+  };
+
+  const handleDeleteTask = async (task: Task) => {
+    if (!listId || !task.id) return;
+
+    try {
+      await deleteTaskAsync({ taskListId: listId, taskId: task.id });
+    } catch (error) {
+      console.error('Failed to delete task:', error);
     }
   };
 
   const tableRows = () => {
-    if (null != listId && null != state.tasks[listId]) {
-      return state.tasks[listId].map((task) => (
-        <TableRow key={task.id} className="border-t">
-          <TableCell className="px-4 py-2">
-            <Checkbox
-              isSelected={TaskStatus.CLOSED == task.status}
-              onValueChange={() => toggleStatus(task)}
-              aria-label={`Mark task "${task.title}" as ${
-                TaskStatus.CLOSED == task.status ? "open" : "closed"
-              }`}
-            />
-          </TableCell>
-          <TableCell className="px-4 py-2">{task.title}</TableCell>
-          <TableCell className="px-4 py-2">{task.priority}</TableCell>
-          <TableCell className="px-4 py-2">
-            {task.dueDate && (
-              <DateInput
-                isDisabled
-                defaultValue={parseDate(
-                  new Date(task.dueDate).toISOString().split("T")[0]
-                )}
-                aria-label={`Due date for task "${task.title}"`}
-              />
-            )}
-          </TableCell>
-          <TableCell className="px-4 py-2">
-            <div className="flex space-x-2">
-              <Button
-                variant="ghost"
-                aria-label={`Edit task "${task.title}"`}
-                onClick={() =>
-                  navigate(`/task-lists/${listId}/edit-task/${task.id}`)
-                }
-              >
-                <Edit className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => api.deleteTask(listId, task.id)}
-                aria-label={`Delete task "${task.title}"`}
-              >
-                <Trash className="h-4 w-4" />
-              </Button>
-            </div>
-          </TableCell>
-        </TableRow>
-      ));
-    } else {
-      return null;
+    if (!tasks || tasks.length === 0) {
+      return (
+        <TableRow>
+        <TableCell className="text-center">-</TableCell>
+        <TableCell className="text-center">No tasks found. Create your first one!</TableCell>
+        <TableCell className="text-center">-</TableCell>
+        <TableCell className="text-center">-</TableCell>
+        <TableCell className="text-center">-</TableCell>
+      </TableRow>
+      );
     }
+
+    return tasks.map((task) => (
+      <TableRow key={task.id} className="border-t">
+        <TableCell className="px-4 py-2">
+          <Checkbox
+            isSelected={task.status === TaskStatus.CLOSED}
+            onValueChange={() => toggleStatus(task)}
+            aria-label={`Mark task "${task.title}" as ${
+              task.status === TaskStatus.CLOSED ? 'open' : 'closed'
+            }`}
+          />
+        </TableCell>
+        <TableCell className="px-4 py-2">{task.title}</TableCell>
+        <TableCell className="px-4 py-2">{task.priority}</TableCell>
+        <TableCell className="px-4 py-2">
+          {task.dueDate && (
+            <DateInput
+              isDisabled
+              defaultValue={parseDate(
+                new Date(task.dueDate).toISOString().split('T')[0],
+              )}
+              aria-label={`Due date for task "${task.title}"`}
+            />
+          )}
+        </TableCell>
+        <TableCell className="px-4 py-2">
+          <div className="flex space-x-2">
+            <Button
+              variant="ghost"
+              aria-label={`Edit task "${task.title}"`}
+              onClick={() =>
+                navigate(`/task-lists/${listId}/edit-task/${task.id}`)
+              }
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => handleDeleteTask(task)}
+              aria-label={`Delete task "${task.title}"`}
+            >
+              <Trash className="h-4 w-4" />
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+    ));
   };
 
   if (isLoading) {
-    return <Spinner />; // Or your preferred loading indicator
+    return <Spinner size="lg" className="mx-auto my-12" />;
   }
 
   return (
@@ -152,13 +172,13 @@ const TaskListScreen: React.FC = () => {
           <Button
             variant="ghost"
             aria-label="Go back to Task Lists"
-            onClick={() => navigate("/")}
+            onClick={() => navigate('/')}
           >
             <ArrowLeft className="h-4 w-4" />
           </Button>
 
           <h1 className="text-2xl font-bold mx-4">
-            {taskList ? taskList.title : "Unknown Task List"}
+            {taskList ? taskList.title : 'Unknown Task List'}
           </h1>
 
           <Button
@@ -200,7 +220,7 @@ const TaskListScreen: React.FC = () => {
         <Button
           color="danger"
           startContent={<Minus size={20} />}
-          onClick={deleteTaskList}
+          onClick={handleDeleteTaskList}
           aria-label="Delete current task list"
         >
           Delete TaskList
